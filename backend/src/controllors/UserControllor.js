@@ -8,10 +8,15 @@ import tokenBlackListModel from "../models/blacklistmodel.js"
 export const Register = async (req ,res)=>{
     try {
         const {name , email , password} = req.body;
+        if (!name || !email || !password) {
+            return res.status(400).json({
+                message: "All fields are required"
+            });
+        }
         const isUser = await User.findOne({email});
         if(isUser){
-            return res.status(500).json({
-                message:"user already registered"
+            return res.status(400).json({
+                message:"User already registered with this email"
             });
         }
         const Hashedpassword =await  bcrypt.hash(password ,10);
@@ -32,26 +37,27 @@ export const Register = async (req ,res)=>{
             secure: isProduction ? true : false,
         });
 
-        // Offload email sending to BullMQ queue (< 2ms execution)
-        await emailQueue.add('sendWelcomeEmail', {
-            type: 'REGISTRATION',
-            payload: { email: newUser.email, name: newUser.name }
-        });
+        // Offload email sending to BullMQ queue safely
+        try {
+            await emailQueue.add('sendWelcomeEmail', {
+                type: 'REGISTRATION',
+                payload: { email: newUser.email, name: newUser.name }
+            });
+        } catch (queueErr) {
+            console.error("Email queue dispatch warning:", queueErr.message);
+        }
 
-        res.status(201).json({
+        return res.status(201).json({
             message:"account created successfully",    
             id : newUser._id,
             name : newUser.name,
             email: newUser.email
-            
         });
 
-        
-    
     }catch(error){
         console.error("Registration Error:", error);
-        return res.status(401).json({
-            message:"internal Server Error"
+        return res.status(500).json({
+            message: error.message || "Internal Server Error"
         })
     }
 }
